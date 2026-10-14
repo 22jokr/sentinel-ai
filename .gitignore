@@ -1,0 +1,20 @@
+# Environnement Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Tests et couverture
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Configuration locale
+.env
+.env.*
+!.env.example
+
+# Éditeurs et systèmes
+.vscode/
+.DS_Store
+Thumbs.db
