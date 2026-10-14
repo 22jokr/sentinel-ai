@@ -33,7 +33,7 @@ def test_five_failures_within_window_trigger_alert():
 
     assert len(alerts) == 1
     assert alerts[0]["rule_id"] == "AUTH-001"
-    assert alerts[0]["severity"] == "high"
+    assert alerts[0]["severity"] == "medium"
     assert alerts[0]["failure_count"] == 5
 
 

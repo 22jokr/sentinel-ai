@@ -2,6 +2,17 @@ from collections import defaultdict, deque
 from datetime import datetime, timedelta
 
 
+
+def classify_severity(failure_count):
+    """Attribue une gravité selon le nombre d'échecs détectés."""
+    if failure_count >= 12:
+        return "critical"
+    if failure_count >= 8:
+        return "high"
+    return "medium"
+
+
+
 def detect_repeated_failures(
     events,
     threshold=5,
@@ -56,7 +67,7 @@ def detect_repeated_failures(
 
             alerts.append({
                 "rule_id": "AUTH-001",
-                "severity": "high",
+                "severity": classify_severity(best_count),
                 "source_ip": source_ip,
                 "username": username,
                 "failure_count": best_count,
