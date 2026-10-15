@@ -8,6 +8,7 @@ from sentinel.csv_loader import load_events_from_csv
 from sentinel.detector import (
     detect_repeated_failures,
     detect_password_spraying,
+    detect_success_after_failures,
 )
 from sentinel.theme import apply_theme
 
@@ -123,6 +124,7 @@ events = events_df.to_dict(orient="records")
 alerts = (
     detect_repeated_failures(events)
     + detect_password_spraying(events)
+    + detect_success_after_failures(events)
 )
 alerts.sort(key=lambda alert: alert['first_seen'])
 
@@ -216,7 +218,8 @@ st.divider()
 st.markdown("### Détections")
 st.caption(
     "AUTH-001 : force brute sur un compte · "
-    "AUTH-002 : comportement compatible avec du password spraying."
+    "AUTH-002 : password spraying potentiel · "
+    "AUTH-003 : connexion réussie après plusieurs échecs."
 )
 
 if alerts:
@@ -233,6 +236,14 @@ if alerts:
                     alert_title = "Password spraying potentiel"
                     alert_count = (
                         f"{alert['account_count']} comptes ciblés"
+                    )
+                elif alert["rule_id"] == "AUTH-003":
+                    alert_title = (
+                        f"Connexion réussie après des échecs · "
+                        f"{alert['username']}"
+                    )
+                    alert_count = (
+                        f"{alert['failure_count']} échecs"
                     )
                 else:
                     alert_title = alert["username"]
@@ -260,7 +271,10 @@ if alerts:
                 st.text(alert["first_seen"])
 
             with details_right:
-                st.caption("DERNIER ÉCHEC")
+                if alert["rule_id"] == "AUTH-003":
+                    st.caption("CONNEXION RÉUSSIE")
+                else:
+                    st.caption("DERNIER ÉCHEC")
                 st.text(alert["last_seen"])
 
     st.divider()
@@ -299,7 +313,7 @@ if alerts:
 
 else:
     st.info(
-        "Aucune alerte AUTH-001 ou AUTH-002 n'a été déclenchée "
+        "Aucune alerte AUTH-001, AUTH-002 ou AUTH-003 n'a été déclenchée "
         "sur les événements analysés."
     )
 
@@ -338,6 +352,10 @@ if alerts:
                 f"- Compte : {alert['username']}",
                 f"- Nombre d'échecs : {alert['failure_count']}",
             ])
+            if alert["rule_id"] == "AUTH-003":
+                report_lines.append(
+                    "- Interprétation : connexion réussie après plusieurs échecs."
+                )
 
         report_lines.extend([
             f"- Premier événement : {alert['first_seen']}",
@@ -347,7 +365,7 @@ if alerts:
         ])
 else:
     report_lines.extend([
-        "Aucune alerte AUTH-001 ou AUTH-002 n'a été déclenchée.",
+        "Aucune alerte AUTH-001, AUTH-002 ou AUTH-003 n'a été déclenchée.",
         "",
     ])
 

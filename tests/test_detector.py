@@ -177,3 +177,101 @@ def test_password_spraying_ignores_successful_logins():
     alerts = detect_password_spraying(events)
 
     assert alerts == []
+
+
+def make_success(minute, username="alice", source_ip="198.51.100.25"):
+    """Construit un événement de connexion réussie."""
+    event = make_failure(
+        minute,
+        username=username,
+        source_ip=source_ip,
+    )
+    event["event_type"] = "login_success"
+    event["success"] = True
+    return event
+
+
+def test_auth003_detects_success_after_three_failures():
+    from sentinel.detector import detect_success_after_failures
+
+    events = [
+        make_failure(0),
+        make_failure(1),
+        make_failure(2),
+        make_success(4),
+    ]
+
+    alerts = detect_success_after_failures(events)
+
+    assert len(alerts) == 1
+    assert alerts[0]["rule_id"] == "AUTH-003"
+    assert alerts[0]["username"] == "alice"
+    assert alerts[0]["source_ip"] == "198.51.100.25"
+    assert alerts[0]["failure_count"] == 3
+
+
+def test_auth003_ignores_success_from_another_ip():
+    from sentinel.detector import detect_success_after_failures
+
+    events = [
+        make_failure(0),
+        make_failure(1),
+        make_failure(2),
+        make_success(3, source_ip="203.0.113.10"),
+    ]
+
+    assert detect_success_after_failures(events) == []
+
+
+def test_auth003_requires_at_least_three_failures():
+    from sentinel.detector import detect_success_after_failures
+
+    events = [
+        make_failure(0),
+        make_failure(1),
+        make_success(2),
+    ]
+
+    assert detect_success_after_failures(events) == []
+
+
+def test_auth003_ignores_success_more_than_ten_minutes_after_first_failure():
+    from sentinel.detector import detect_success_after_failures
+
+    events = [
+        make_failure(0),
+        make_failure(1),
+        make_failure(2),
+        make_success(11),
+    ]
+
+    assert detect_success_after_failures(events) == []
+
+
+def test_auth003_respects_exact_ten_minute_boundary():
+    from sentinel.detector import detect_success_after_failures
+
+    events = [
+        make_failure(0),
+        make_failure(1),
+        make_failure(2),
+        make_success(10),
+    ]
+
+    assert detect_success_after_failures(events) == []
+
+
+def test_auth003_does_not_repeat_alert_without_new_failures():
+    from sentinel.detector import detect_success_after_failures
+
+    events = [
+        make_failure(0),
+        make_failure(1),
+        make_failure(2),
+        make_success(3),
+        make_success(4),
+    ]
+
+    alerts = detect_success_after_failures(events)
+
+    assert len(alerts) == 1

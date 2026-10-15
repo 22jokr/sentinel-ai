@@ -155,3 +155,89 @@ def detect_password_spraying(
             })
 
     return alerts
+
+
+def detect_success_after_failures(
+    events,
+    threshold=3,
+    window_minutes=10,
+):
+    """
+    Détecte une connexion réussie après plusieurs échecs.
+
+    Une alerte est créée lorsqu'une même IP et un même compte
+    présentent au moins `threshold` échecs avant une connexion
+    réussie, dans une période maximale de `window_minutes`
+    entre le premier échec retenu et la réussite.
+
+    Cette séquence est suspecte, mais ne prouve pas une compromission.
+    """
+    grouped_events = defaultdict(list)
+
+    for event in events:
+        if event["event_type"] not in (
+            "login_failure",
+            "login_success",
+        ):
+            continue
+
+        timestamp = datetime.fromisoformat(event["timestamp"])
+        key = (event["source_ip"], event["username"])
+        grouped_events[key].append((timestamp, event))
+
+    alerts = []
+    window = timedelta(minutes=window_minutes)
+
+    for (source_ip, username), account_events in grouped_events.items():
+        account_events.sort(key=lambda item: item[0])
+        failures = deque()
+
+        for timestamp, event in account_events:
+            if event["event_type"] == "login_failure":
+                failures.append(timestamp)
+
+                while (
+                    failures
+                    and timestamp - failures[0] >= window
+                ):
+                    failures.popleft()
+
+                continue
+
+            # Une réussite doit être précédée d'au moins
+            # threshold échecs dans la fenêtre autorisée.
+            while (
+                failures
+                and timestamp - failures[0] >= window
+            ):
+                failures.popleft()
+
+            if len(failures) >= threshold:
+                failure_count = len(failures)
+                first_seen = failures[0]
+                last_failure = failures[-1]
+
+                alerts.append({
+                    "rule_id": "AUTH-003",
+                    "severity": "high",
+                    "source_ip": source_ip,
+                    "username": username,
+                    "failure_count": failure_count,
+                    "window_minutes": window_minutes,
+                    "first_seen": first_seen.isoformat(),
+                    "last_seen": timestamp.isoformat(),
+                    "description": (
+                        f"Connexion réussie pour le compte {username} "
+                        f"depuis {source_ip} après {failure_count} "
+                        f"échecs dans la fenêtre de "
+                        f"{window_minutes} minutes. "
+                        f"Dernier échec : {last_failure.isoformat()}."
+                    ),
+                })
+
+                # Évite de réutiliser les mêmes échecs pour
+                # déclencher plusieurs alertes sur des réussites
+                # successives sans nouvel échec.
+                failures.clear()
+
+    return alerts
