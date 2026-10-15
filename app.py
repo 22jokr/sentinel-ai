@@ -5,7 +5,10 @@ import pandas as pd
 import streamlit as st
 
 from sentinel.csv_loader import load_events_from_csv
-from sentinel.detector import detect_repeated_failures
+from sentinel.detector import (
+    detect_repeated_failures,
+    detect_password_spraying,
+)
 from sentinel.theme import apply_theme
 
 
@@ -117,7 +120,11 @@ if events_df is None:
 
 # Analyse
 events = events_df.to_dict(orient="records")
-alerts = detect_repeated_failures(events)
+alerts = (
+    detect_repeated_failures(events)
+    + detect_password_spraying(events)
+)
+alerts.sort(key=lambda alert: alert['first_seen'])
 
 total_events = len(events_df)
 failed_logins = int((events_df["event_type"] == "login_failure").sum())
@@ -208,8 +215,8 @@ st.divider()
 # Alertes
 st.markdown("### Détections")
 st.caption(
-    "Alertes produites par AUTH-001 — détection des échecs "
-    "répétés d'authentification."
+    "AUTH-001 : force brute sur un compte · "
+    "AUTH-002 : comportement compatible avec du password spraying."
 )
 
 if alerts:
@@ -222,8 +229,19 @@ if alerts:
             header_left, header_right = st.columns([4, 1])
 
             with header_left:
+                if alert["rule_id"] == "AUTH-002":
+                    alert_title = "Password spraying potentiel"
+                    alert_count = (
+                        f"{alert['account_count']} comptes ciblés"
+                    )
+                else:
+                    alert_title = alert["username"]
+                    alert_count = (
+                        f"{alert['failure_count']} échecs"
+                    )
+
                 st.markdown(
-                    f"**{alert['rule_id']} · {alert['username']}**"
+                    f"**{alert['rule_id']} · {alert_title}**"
                 )
                 st.caption(
                     f"Adresse source : {alert['source_ip']}"
@@ -231,9 +249,7 @@ if alerts:
 
             with header_right:
                 st.markdown(f"**{severity}**")
-                st.caption(
-                    f"{alert['failure_count']} échecs"
-                )
+                st.caption(alert_count)
 
             st.markdown(alert["description"])
 
@@ -250,33 +266,40 @@ if alerts:
     st.divider()
     st.markdown("#### Export des résultats")
 
-    display_alerts = alerts_df[
-        [
-            "severity",
-            "rule_id",
-            "source_ip",
-            "username",
-            "failure_count",
-            "first_seen",
-            "last_seen",
-            "description",
-        ]
-    ].copy()
+    export_columns = [
+        "severity",
+        "rule_id",
+        "source_ip",
+        "username",
+        "failure_count",
+        "account_count",
+        "accounts",
+        "first_seen",
+        "last_seen",
+        "description",
+    ]
 
+    display_alerts = alerts_df.copy()
+
+    for column in export_columns:
+        if column not in display_alerts.columns:
+            display_alerts[column] = ""
+
+    display_alerts = display_alerts[export_columns].fillna("")
     display_alerts["severity"] = (
         display_alerts["severity"].str.upper()
     )
 
     st.download_button(
         "Exporter les alertes (CSV)",
-        data=display_alerts.to_csv(index=False).encode("utf-8"),
+        data=display_alerts.to_csv(index=False).encode("utf-8-sig"),
         file_name="sentinel_alerts.csv",
         mime="text/csv",
     )
 
 else:
     st.info(
-        "Aucune alerte n'a été déclenchée par AUTH-001 "
+        "Aucune alerte AUTH-001 ou AUTH-002 n'a été déclenchée "
         "sur les événements analysés."
     )
 
@@ -302,9 +325,21 @@ if alerts:
         report_lines.extend([
             f"### {alert['rule_id']} — {alert['severity'].upper()}",
             "",
-            f"- Compte : {alert['username']}",
             f"- Adresse IP source : {alert['source_ip']}",
-            f"- Nombre d'échecs : {alert['failure_count']}",
+        ])
+
+        if alert["rule_id"] == "AUTH-002":
+            report_lines.extend([
+                f"- Comptes distincts ciblés : {alert['account_count']}",
+                f"- Comptes : {', '.join(alert['accounts'])}",
+            ])
+        else:
+            report_lines.extend([
+                f"- Compte : {alert['username']}",
+                f"- Nombre d'échecs : {alert['failure_count']}",
+            ])
+
+        report_lines.extend([
             f"- Premier événement : {alert['first_seen']}",
             f"- Dernier événement : {alert['last_seen']}",
             f"- Explication : {alert['description']}",
@@ -312,7 +347,7 @@ if alerts:
         ])
 else:
     report_lines.extend([
-        "Aucune alerte n'a été déclenchée par AUTH-001.",
+        "Aucune alerte AUTH-001 ou AUTH-002 n'a été déclenchée.",
         "",
     ])
 
@@ -345,7 +380,7 @@ with st.expander("Consulter les événements détaillés"):
 
     st.download_button(
         "Exporter les événements (CSV)",
-        data=events_df.to_csv(index=False).encode("utf-8"),
+        data=events_df.to_csv(index=False).encode("utf-8-sig"),
         file_name="sentinel_events.csv",
         mime="text/csv",
     )

@@ -81,3 +81,77 @@ def detect_repeated_failures(
             })
 
     return alerts
+
+
+def detect_password_spraying(
+    events,
+    threshold=5,
+    window_minutes=5,
+):
+    """
+    Détecte une activité compatible avec du password spraying.
+
+    Une alerte est créée lorsqu'une même IP provoque des échecs
+    sur au moins `threshold` comptes distincts dans une fenêtre
+    de `window_minutes` minutes.
+
+    Cette règle identifie un comportement suspect, sans prouver
+    qu'un même mot de passe a été utilisé sur tous les comptes.
+    """
+    grouped_events = defaultdict(list)
+
+    for event in events:
+        if event["event_type"] != "login_failure":
+            continue
+
+        timestamp = datetime.fromisoformat(event["timestamp"])
+        key = event["source_ip"]
+        grouped_events[key].append((timestamp, event))
+
+    alerts = []
+    window = timedelta(minutes=window_minutes)
+
+    for source_ip, failures in grouped_events.items():
+        failures.sort(key=lambda item: item[0])
+        recent_failures = deque()
+
+        best_window = []
+        best_accounts = set()
+
+        for timestamp, event in failures:
+            recent_failures.append((timestamp, event))
+
+            while (
+                recent_failures
+                and timestamp - recent_failures[0][0] >= window
+            ):
+                recent_failures.popleft()
+
+            accounts = {
+                failure["username"]
+                for _, failure in recent_failures
+            }
+
+            if len(accounts) > len(best_accounts):
+                best_accounts = accounts
+                best_window = list(recent_failures)
+
+        if len(best_accounts) >= threshold:
+            alerts.append({
+                "rule_id": "AUTH-002",
+                "severity": "high",
+                "source_ip": source_ip,
+                "account_count": len(best_accounts),
+                "accounts": sorted(best_accounts),
+                "window_minutes": window_minutes,
+                "first_seen": best_window[0][0].isoformat(),
+                "last_seen": best_window[-1][0].isoformat(),
+                "description": (
+                    f"Activité compatible avec du password spraying : "
+                    f"{len(best_accounts)} comptes distincts ciblés "
+                    f"depuis {source_ip} en moins de "
+                    f"{window_minutes} minutes."
+                ),
+            })
+
+    return alerts

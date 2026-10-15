@@ -115,3 +115,65 @@ def test_custom_threshold_triggers_alert():
 
     assert len(alerts) == 1
     assert alerts[0]["failure_count"] == 3
+
+
+def test_password_spraying_detected_across_five_accounts():
+    from sentinel.detector import detect_password_spraying
+
+    events = [
+        make_failure(i, username=f"user{i}")
+        for i in range(5)
+    ]
+
+    alerts = detect_password_spraying(events)
+
+    assert len(alerts) == 1
+    assert alerts[0]["rule_id"] == "AUTH-002"
+    assert alerts[0]["source_ip"] == "198.51.100.25"
+    assert alerts[0]["account_count"] == 5
+
+
+def test_password_spraying_not_detected_for_four_accounts():
+    from sentinel.detector import detect_password_spraying
+
+    events = [
+        make_failure(i, username=f"user{i}")
+        for i in range(4)
+    ]
+
+    alerts = detect_password_spraying(events)
+
+    assert alerts == []
+
+
+def test_password_spraying_keeps_different_ips_separate():
+    from sentinel.detector import detect_password_spraying
+
+    events = [
+        make_failure(i, username=f"user{i}", source_ip="198.51.100.25")
+        for i in range(3)
+    ]
+    events += [
+        make_failure(i, username=f"other{i}", source_ip="203.0.113.10")
+        for i in range(3)
+    ]
+
+    alerts = detect_password_spraying(events)
+
+    assert alerts == []
+
+
+def test_password_spraying_ignores_successful_logins():
+    from sentinel.detector import detect_password_spraying
+
+    events = []
+
+    for i in range(5):
+        event = make_failure(i, username=f"user{i}")
+        event["event_type"] = "login_success"
+        event["success"] = True
+        events.append(event)
+
+    alerts = detect_password_spraying(events)
+
+    assert alerts == []
