@@ -147,9 +147,25 @@ alerts.sort(key=lambda alert: alert['first_seen'])
 total_events = len(events_df)
 failed_logins = int((events_df["event_type"] == "login_failure").sum())
 total_alerts = len(alerts)
+
 critical_alerts = sum(
     alert["severity"] == "critical" for alert in alerts
 )
+high_alerts = sum(
+    alert["severity"] == "high" for alert in alerts
+)
+medium_alerts = sum(
+    alert["severity"] == "medium" for alert in alerts
+)
+
+if critical_alerts:
+    risk_level = "Critique"
+elif high_alerts:
+    risk_level = "Élevé"
+elif medium_alerts:
+    risk_level = "Modéré"
+else:
+    risk_level = "Faible"
 
 
 # Résumé
@@ -354,13 +370,16 @@ else:
 report_lines = [
     "# Rapport d'analyse — Sentinel AI",
     "",
-    "## Synthèse",
+    "## Synthèse exécutive",
     "",
+    f"- Niveau de risque global : **{risk_level}**",
     f"- Événements analysés : {total_events}",
     f"- Échecs de connexion : {failed_logins}",
     f"- Lignes potentiellement dupliquées : {duplicate_count}",
     f"- Alertes détectées : {total_alerts}",
     f"- Alertes critiques : {critical_alerts}",
+    f"- Alertes élevées : {high_alerts}",
+    f"- Alertes modérées : {medium_alerts}",
     "",
     "## Alertes détectées",
     "",
@@ -409,6 +428,56 @@ else:
     report_lines.extend([
         "Aucune alerte AUTH-001, AUTH-002, AUTH-003 ou AUTH-004 "
         "n'a été déclenchée.",
+        "",
+    ])
+
+# Recommandations opérationnelles selon les règles déclenchées
+recommendations = {
+    "AUTH-001": (
+        "Examiner les échecs de connexion répétés, vérifier l'origine "
+        "des tentatives et appliquer les protections adaptées, comme "
+        "la limitation du débit ou le verrouillage progressif."
+    ),
+    "AUTH-002": (
+        "Vérifier les autres comptes ciblés par cette adresse IP, "
+        "rechercher des tentatives similaires et examiner les protections "
+        "contre les tentatives automatisées."
+    ),
+    "AUTH-003": (
+        "Vérifier si la connexion réussie est légitime. Examiner les "
+        "événements associés au compte et, en cas de doute, appliquer "
+        "la procédure de réponse à incident de l'organisation."
+    ),
+    "AUTH-004": (
+        "Vérifier si les connexions depuis plusieurs adresses IP sont "
+        "attendues, notamment en présence d'un VPN ou d'un réseau mobile. "
+        "Examiner les horaires et les autres événements du compte."
+    ),
+}
+
+triggered_rules = sorted({alert["rule_id"] for alert in alerts})
+
+report_lines.extend([
+    "## Recommandations",
+    "",
+])
+
+if triggered_rules:
+    for rule_id in triggered_rules:
+        report_lines.extend([
+            f"### {rule_id}",
+            "",
+            recommendations.get(
+                rule_id,
+                "Examiner les événements concernés et confirmer "
+                "leur légitimité avant toute action."
+            ),
+            "",
+        ])
+else:
+    report_lines.extend([
+        "Aucune recommandation spécifique à une alerte déclenchée.",
+        "L'absence d'alerte ne garantit pas l'absence d'activité malveillante.",
         "",
     ])
 
