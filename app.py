@@ -256,74 +256,211 @@ st.caption(
 if alerts:
     alerts_df = pd.DataFrame(alerts)
 
-    for index, alert in enumerate(alerts, start=1):
-        severity = alert["severity"].upper()
+    severity_order = {
+        "CRITICAL": 0,
+        "HIGH": 1,
+        "MEDIUM": 2,
+        "LOW": 3,
+    }
 
-        with st.container(border=True):
-            header_left, header_right = st.columns([4, 1])
+    severity_labels = {
+        "CRITICAL": "Critique",
+        "HIGH": "Élevée",
+        "MEDIUM": "Modérée",
+        "LOW": "Faible",
+    }
 
-            with header_left:
-                if alert["rule_id"] == "AUTH-002":
-                    alert_title = "Password spraying potentiel"
-                    alert_count = (
-                        f"{alert['account_count']} comptes ciblés"
-                    )
-                elif alert["rule_id"] == "AUTH-003":
-                    alert_title = (
-                        f"Connexion réussie après des échecs · "
-                        f"{alert['username']}"
-                    )
-                    alert_count = f"{alert['failure_count']} échecs"
-                elif alert["rule_id"] == "AUTH-004":
-                    alert_title = (
-                        f"Connexions depuis plusieurs IP · "
-                        f"{alert['username']}"
-                    )
-                    alert_count = f"{alert['ip_count']} IP distinctes"
-                else:
-                    alert_title = alert["username"]
-                    alert_count = f"{alert['failure_count']} échecs"
+    severity_icons = {
+        "CRITICAL": "🔴",
+        "HIGH": "🟠",
+        "MEDIUM": "🟡",
+        "LOW": "🟢",
+    }
 
-                st.markdown(
-                    f"**{alert['rule_id']} · {alert_title}**"
+    rule_titles = {
+        "AUTH-001": "Force brute sur un compte",
+        "AUTH-002": "Password spraying potentiel",
+        "AUTH-003": "Connexion réussie après des échecs",
+        "AUTH-004": "Connexions depuis plusieurs IP",
+    }
+
+    critical_count = sum(
+        str(alert.get("severity", "")).upper() == "CRITICAL"
+        for alert in alerts
+    )
+    high_count = sum(
+        str(alert.get("severity", "")).upper() == "HIGH"
+        for alert in alerts
+    )
+    medium_count = sum(
+        str(alert.get("severity", "")).upper() == "MEDIUM"
+        for alert in alerts
+    )
+
+    summary_cols = st.columns(3)
+
+    with summary_cols[0]:
+        st.metric("Critiques", critical_count)
+
+    with summary_cols[1]:
+        st.metric("Élevées", high_count)
+
+    with summary_cols[2]:
+        st.metric("Modérées", medium_count)
+
+    st.divider()
+    st.markdown("#### Filtrer les détections")
+
+    available_severities = sorted(
+        {
+            str(alert.get("severity", "")).upper()
+            for alert in alerts
+        },
+        key=lambda value: severity_order.get(value, 99),
+    )
+
+    available_rules = sorted(
+        {str(alert.get("rule_id", "")) for alert in alerts}
+    )
+
+    filter_left, filter_right = st.columns(2)
+
+    with filter_left:
+        selected_severities = st.multiselect(
+            "Niveau de gravité",
+            options=available_severities,
+            default=available_severities,
+            format_func=lambda value: severity_labels.get(
+                value, value.title()
+            ),
+            key="sentinel_severity_filter_" + "_".join(available_severities),
+        )
+
+    with filter_right:
+        selected_rules = st.multiselect(
+            "Règle de détection",
+            options=available_rules,
+            default=available_rules,
+            format_func=lambda value: (
+                f"{value} · {rule_titles.get(value, value)}"
+            ),
+            key="sentinel_rule_filter_" + "_".join(available_rules),
+        )
+
+    visible_alerts = [
+        alert
+        for alert in alerts
+        if str(alert.get("severity", "")).upper()
+        in selected_severities
+        and str(alert.get("rule_id", "")) in selected_rules
+    ]
+
+    visible_alerts.sort(
+        key=lambda alert: (
+            severity_order.get(
+                str(alert.get("severity", "")).upper(), 99
+            ),
+            str(alert.get("rule_id", "")),
+            str(alert.get("first_seen", "")),
+        )
+    )
+
+    st.caption(
+        f"{len(visible_alerts)} alerte(s) affichée(s) "
+        f"sur {len(alerts)} détectée(s)."
+    )
+
+    if visible_alerts:
+        for alert in visible_alerts:
+            severity = str(alert.get("severity", "")).upper()
+            rule_id = str(alert.get("rule_id", ""))
+            alert_title = rule_titles.get(rule_id, rule_id)
+
+            if rule_id == "AUTH-002":
+                alert_count = (
+                    f"{alert.get('account_count', 0)} comptes ciblés"
+                )
+                identity = (
+                    f"Adresse source : {alert.get('source_ip', 'Inconnue')}"
+                )
+            elif rule_id == "AUTH-003":
+                alert_title = (
+                    f"Connexion réussie après des échecs · "
+                    f"{alert.get('username', 'inconnu')}"
+                )
+                alert_count = f"{alert.get('failure_count', 0)} échecs"
+                identity = (
+                    f"Adresse source : {alert.get('source_ip', 'Inconnue')}"
+                )
+            elif rule_id == "AUTH-004":
+                alert_title = (
+                    f"Connexions depuis plusieurs IP · "
+                    f"{alert.get('username', 'inconnu')}"
+                )
+                alert_count = f"{alert.get('ip_count', 0)} IP distinctes"
+                identity = (
+                    "Adresses sources : "
+                    + ", ".join(alert.get("source_ips") or [])
+                )
+            else:
+                alert_title = (
+                    f"{alert_title} · "
+                    f"{alert.get('username', 'inconnu')}"
+                )
+                alert_count = f"{alert.get('failure_count', 0)} échecs"
+                identity = (
+                    f"Adresse source : {alert.get('source_ip', 'Inconnue')}"
                 )
 
-                if alert["rule_id"] == "AUTH-004":
-                    st.caption(
-                        "Adresses sources : "
-                        + ", ".join(alert["source_ips"])
+            with st.container(border=True):
+                header_left, header_right = st.columns([4, 1])
+
+                with header_left:
+                    st.markdown(f"**{rule_id} · {alert_title}**")
+                    st.caption(identity)
+
+                with header_right:
+                    st.markdown(
+                        f"**{severity_icons.get(severity, '⚪')} "
+                        f"{severity_labels.get(severity, severity)}**"
                     )
-                else:
-                    st.caption(
-                        f"Adresse source : {alert['source_ip']}"
+                    st.caption(alert_count)
+
+                st.write(alert.get("description", "Aucune description."))
+
+                details_left, details_right = st.columns(2)
+
+                with details_left:
+                    label = (
+                        "PREMIÈRE CONNEXION"
+                        if rule_id == "AUTH-004"
+                        else "PREMIER ÉVÉNEMENT"
                     )
+                    st.caption(label)
+                    st.text(alert.get("first_seen", "Non disponible"))
 
-            with header_right:
-                st.markdown(f"**{severity}**")
-                st.caption(alert_count)
+                with details_right:
+                    if rule_id == "AUTH-003":
+                        label = "CONNEXION RÉUSSIE"
+                    elif rule_id == "AUTH-004":
+                        label = "DERNIÈRE CONNEXION"
+                    else:
+                        label = "DERNIER ÉVÉNEMENT"
 
-            st.markdown(alert["description"])
-
-            details_left, details_right = st.columns(2)
-
-            with details_left:
-                if alert["rule_id"] == "AUTH-004":
-                    st.caption("PREMIÈRE CONNEXION")
-                else:
-                    st.caption("PREMIER ÉVÉNEMENT")
-                st.text(alert["first_seen"])
-
-            with details_right:
-                if alert["rule_id"] == "AUTH-003":
-                    st.caption("CONNEXION RÉUSSIE")
-                elif alert["rule_id"] == "AUTH-004":
-                    st.caption("DERNIÈRE CONNEXION")
-                else:
-                    st.caption("DERNIER ÉVÉNEMENT")
-                st.text(alert["last_seen"])
+                    st.caption(label)
+                    st.text(alert.get("last_seen", "Non disponible"))
+    else:
+        st.info(
+            "Aucune alerte ne correspond aux filtres sélectionnés. "
+            "Modifie les filtres pour afficher d'autres détections."
+        )
 
     st.divider()
     st.markdown("#### Export des résultats")
+    st.caption(
+        "L'export contient toutes les alertes détectées, "
+        "indépendamment des filtres d'affichage."
+    )
 
     export_columns = [
         "severity",
@@ -352,7 +489,7 @@ if alerts:
     )
 
     st.download_button(
-        "Exporter les alertes (CSV)",
+        "Exporter toutes les alertes (CSV)",
         data=display_alerts.to_csv(index=False).encode("utf-8-sig"),
         file_name="sentinel_alerts.csv",
         mime="text/csv",
@@ -363,7 +500,6 @@ else:
         "Aucune alerte AUTH-001, AUTH-002, AUTH-003 ou AUTH-004 "
         "n'a été déclenchée sur les événements analysés."
     )
-
 
 
 # Rapport d'analyse exportable
