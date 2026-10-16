@@ -9,6 +9,7 @@ from sentinel.detector import (
     detect_repeated_failures,
     detect_password_spraying,
     detect_success_after_failures,
+    detect_multiple_source_ips,
 )
 from sentinel.theme import apply_theme
 
@@ -68,9 +69,11 @@ with st.sidebar:
 
     st.divider()
     st.caption("MOTEUR DE DÉTECTION")
-    st.markdown("`AUTH-001`")
-    st.caption("Échecs répétés d'authentification")
-    st.caption("Seuil par défaut : 5 échecs / 5 min")
+    st.markdown("`AUTH-001` · `AUTH-002`")
+    st.caption("Force brute et password spraying")
+    st.markdown("`AUTH-003` · `AUTH-004`")
+    st.caption("Connexion après échecs et IP multiples")
+    st.caption("Règles à seuils temporels configurables dans le moteur")
 
     st.divider()
     st.caption("Version de démonstration · v0.1")
@@ -120,11 +123,24 @@ if events_df is None:
 
 
 # Analyse
+
+duplicate_count = int(events_df.duplicated().sum())
+
+if duplicate_count > 0:
+    st.warning(
+        f"⚠️ {duplicate_count} ligne(s) potentiellement dupliquée(s) détectée(s). "
+        "Ces lignes sont conservées dans l'analyse : vérifie qu'il ne s'agit "
+        "pas d'événements répétés légitimes."
+    )
+
+# Analyse
 events = events_df.to_dict(orient="records")
+
 alerts = (
     detect_repeated_failures(events)
     + detect_password_spraying(events)
     + detect_success_after_failures(events)
+    + detect_multiple_source_ips(events)
 )
 alerts.sort(key=lambda alert: alert['first_seen'])
 
@@ -213,13 +229,12 @@ st.divider()
 
 
 # Alertes
-
-# Alertes
 st.markdown("### Détections")
 st.caption(
     "AUTH-001 : force brute sur un compte · "
     "AUTH-002 : password spraying potentiel · "
-    "AUTH-003 : connexion réussie après plusieurs échecs."
+    "AUTH-003 : connexion réussie après plusieurs échecs · "
+    "AUTH-004 : connexions réussies depuis plusieurs IP."
 )
 
 if alerts:
@@ -242,21 +257,30 @@ if alerts:
                         f"Connexion réussie après des échecs · "
                         f"{alert['username']}"
                     )
-                    alert_count = (
-                        f"{alert['failure_count']} échecs"
+                    alert_count = f"{alert['failure_count']} échecs"
+                elif alert["rule_id"] == "AUTH-004":
+                    alert_title = (
+                        f"Connexions depuis plusieurs IP · "
+                        f"{alert['username']}"
                     )
+                    alert_count = f"{alert['ip_count']} IP distinctes"
                 else:
                     alert_title = alert["username"]
-                    alert_count = (
-                        f"{alert['failure_count']} échecs"
-                    )
+                    alert_count = f"{alert['failure_count']} échecs"
 
                 st.markdown(
                     f"**{alert['rule_id']} · {alert_title}**"
                 )
-                st.caption(
-                    f"Adresse source : {alert['source_ip']}"
-                )
+
+                if alert["rule_id"] == "AUTH-004":
+                    st.caption(
+                        "Adresses sources : "
+                        + ", ".join(alert["source_ips"])
+                    )
+                else:
+                    st.caption(
+                        f"Adresse source : {alert['source_ip']}"
+                    )
 
             with header_right:
                 st.markdown(f"**{severity}**")
@@ -267,14 +291,19 @@ if alerts:
             details_left, details_right = st.columns(2)
 
             with details_left:
-                st.caption("PREMIER ÉCHEC")
+                if alert["rule_id"] == "AUTH-004":
+                    st.caption("PREMIÈRE CONNEXION")
+                else:
+                    st.caption("PREMIER ÉVÉNEMENT")
                 st.text(alert["first_seen"])
 
             with details_right:
                 if alert["rule_id"] == "AUTH-003":
                     st.caption("CONNEXION RÉUSSIE")
+                elif alert["rule_id"] == "AUTH-004":
+                    st.caption("DERNIÈRE CONNEXION")
                 else:
-                    st.caption("DERNIER ÉCHEC")
+                    st.caption("DERNIER ÉVÉNEMENT")
                 st.text(alert["last_seen"])
 
     st.divider()
@@ -288,6 +317,8 @@ if alerts:
         "failure_count",
         "account_count",
         "accounts",
+        "ip_count",
+        "source_ips",
         "first_seen",
         "last_seen",
         "description",
@@ -313,8 +344,8 @@ if alerts:
 
 else:
     st.info(
-        "Aucune alerte AUTH-001, AUTH-002 ou AUTH-003 n'a été déclenchée "
-        "sur les événements analysés."
+        "Aucune alerte AUTH-001, AUTH-002, AUTH-003 ou AUTH-004 "
+        "n'a été déclenchée sur les événements analysés."
     )
 
 
@@ -327,6 +358,7 @@ report_lines = [
     "",
     f"- Événements analysés : {total_events}",
     f"- Échecs de connexion : {failed_logins}",
+    f"- Lignes potentiellement dupliquées : {duplicate_count}",
     f"- Alertes détectées : {total_alerts}",
     f"- Alertes critiques : {critical_alerts}",
     "",
@@ -339,16 +371,26 @@ if alerts:
         report_lines.extend([
             f"### {alert['rule_id']} — {alert['severity'].upper()}",
             "",
-            f"- Adresse IP source : {alert['source_ip']}",
         ])
 
-        if alert["rule_id"] == "AUTH-002":
+        if alert["rule_id"] == "AUTH-004":
             report_lines.extend([
+                f"- Compte : {alert['username']}",
+                f"- Nombre d'IP distinctes : {alert['ip_count']}",
+                f"- Adresses IP : {', '.join(alert['source_ips'])}",
+                f"- Fenêtre d'analyse : {alert['window_minutes']} minutes",
+                "- Interprétation : vérifier si ces connexions proviennent "
+                "d'un VPN, d'un réseau mobile ou d'un usage légitime.",
+            ])
+        elif alert["rule_id"] == "AUTH-002":
+            report_lines.extend([
+                f"- Adresse IP source : {alert['source_ip']}",
                 f"- Comptes distincts ciblés : {alert['account_count']}",
                 f"- Comptes : {', '.join(alert['accounts'])}",
             ])
         else:
             report_lines.extend([
+                f"- Adresse IP source : {alert['source_ip']}",
                 f"- Compte : {alert['username']}",
                 f"- Nombre d'échecs : {alert['failure_count']}",
             ])
@@ -365,7 +407,8 @@ if alerts:
         ])
 else:
     report_lines.extend([
-        "Aucune alerte AUTH-001, AUTH-002 ou AUTH-003 n'a été déclenchée.",
+        "Aucune alerte AUTH-001, AUTH-002, AUTH-003 ou AUTH-004 "
+        "n'a été déclenchée.",
         "",
     ])
 
@@ -373,6 +416,8 @@ report_lines.extend([
     "## Portée et limites",
     "",
     "La détection repose sur des règles prédéfinies.",
+    "Les lignes identiques sont signalées comme doublons potentiels, "
+    "mais conservées car elles peuvent représenter des événements légitimes.",
     "Ce rapport ne constitue pas une preuve d'absence "
     "ou de présence certaine d'une attaque.",
     "Les résultats doivent être interprétés dans leur contexte.",

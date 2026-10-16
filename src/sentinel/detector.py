@@ -241,3 +241,80 @@ def detect_success_after_failures(
                 failures.clear()
 
     return alerts
+
+
+def detect_multiple_source_ips(
+    events,
+    threshold=3,
+    window_minutes=10,
+):
+    """
+    Détecte les connexions réussies d'un même compte depuis
+    plusieurs adresses IP distinctes dans une fenêtre temporelle.
+
+    Cette activité peut être suspecte, mais ne prouve pas
+    une compromission du compte.
+    """
+    grouped_events = defaultdict(list)
+
+    for event in events:
+        if event["event_type"] != "login_success":
+            continue
+
+        timestamp = datetime.fromisoformat(event["timestamp"])
+        username = event["username"]
+        source_ip = event["source_ip"]
+
+        grouped_events[username].append((timestamp, source_ip))
+
+    alerts = []
+    window = timedelta(minutes=window_minutes)
+
+    for username, account_events in grouped_events.items():
+        account_events.sort(key=lambda item: item[0])
+        recent_events = deque()
+        best_window = []
+        best_ips = set()
+
+        for timestamp, source_ip in account_events:
+            recent_events.append((timestamp, source_ip))
+
+            while (
+                recent_events
+                and timestamp - recent_events[0][0] >= window
+            ):
+                recent_events.popleft()
+
+            distinct_ips = {
+                ip for _, ip in recent_events
+            }
+
+            if len(distinct_ips) > len(best_ips):
+                best_ips = distinct_ips
+                best_window = list(recent_events)
+
+        if len(best_ips) >= threshold:
+            first_seen = best_window[0][0]
+            last_seen = best_window[-1][0]
+            source_ips = sorted(best_ips)
+
+            alerts.append({
+                "rule_id": "AUTH-004",
+                "severity": "medium",
+                "username": username,
+                "source_ips": source_ips,
+                "ip_count": len(source_ips),
+                "window_minutes": window_minutes,
+                "first_seen": first_seen.isoformat(),
+                "last_seen": last_seen.isoformat(),
+                "description": (
+                    f"Le compte {username} a présenté des connexions "
+                    f"réussies depuis {len(source_ips)} adresses IP "
+                    f"distinctes dans une fenêtre de "
+                    f"{window_minutes} minutes : "
+                    f"{', '.join(source_ips)}. "
+                    "Vérifier si cette activité est légitime."
+                ),
+            })
+
+    return alerts

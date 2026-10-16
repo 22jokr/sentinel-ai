@@ -1,0 +1,5 @@
+timestamp,source_ip,username,event_type,success
+2026-10-14T10:00:00+00:00,198.51.100.25,alice,login_failure,false
+2026-10-14T10:01:00+00:00,198.51.100.25,alice,login_failure,false
+2026-10-14T10:02:00+00:00,198.51.100.25,alice,login_failure,false
+2026-10-14T10:04:00+00:00,198.51.100.25,alice,login_success,true

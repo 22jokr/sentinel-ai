@@ -18,3 +18,12 @@ htmlcov/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Métadonnées générées par l'installation Python
+*.egg-info/
+
+# Sauvegardes locales
+*.backup
+*.pre_auth003.backup
+*.pre_auth003_ui.backup
+*.pre_auth004.backup

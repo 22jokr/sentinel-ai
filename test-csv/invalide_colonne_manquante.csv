@@ -1,0 +1,3 @@
+timestamp,username,event_type,success
+2026-10-15T11:00:00+00:00,alice,login_success,True
+2026-10-15T11:01:00+00:00,bob,login_failure,False

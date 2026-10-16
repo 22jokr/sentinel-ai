@@ -275,3 +275,90 @@ def test_auth003_does_not_repeat_alert_without_new_failures():
     alerts = detect_success_after_failures(events)
 
     assert len(alerts) == 1
+
+
+def test_auth004_detects_successful_logins_from_three_distinct_ips():
+    from sentinel.detector import detect_multiple_source_ips
+
+    events = [
+        make_success(0, source_ip="198.51.100.25"),
+        make_success(3, source_ip="203.0.113.10"),
+        make_success(7, source_ip="192.0.2.10"),
+    ]
+
+    alerts = detect_multiple_source_ips(events)
+
+    assert len(alerts) == 1
+    assert alerts[0]["rule_id"] == "AUTH-004"
+    assert alerts[0]["username"] == "alice"
+    assert alerts[0]["ip_count"] == 3
+    assert set(alerts[0]["source_ips"]) == {
+        "198.51.100.25",
+        "203.0.113.10",
+        "192.0.2.10",
+    }
+
+
+def test_auth004_ignores_only_two_distinct_ips():
+    from sentinel.detector import detect_multiple_source_ips
+
+    events = [
+        make_success(0, source_ip="198.51.100.25"),
+        make_success(2, source_ip="203.0.113.10"),
+        make_success(4, source_ip="198.51.100.25"),
+    ]
+
+    assert detect_multiple_source_ips(events) == []
+
+
+def test_auth004_does_not_count_repeated_logins_from_same_ip():
+    from sentinel.detector import detect_multiple_source_ips
+
+    events = [
+        make_success(0, source_ip="198.51.100.25"),
+        make_success(1, source_ip="198.51.100.25"),
+        make_success(2, source_ip="198.51.100.25"),
+    ]
+
+    assert detect_multiple_source_ips(events) == []
+
+
+def test_auth004_ignores_failed_logins():
+    from sentinel.detector import detect_multiple_source_ips
+
+    events = [
+        make_failure(0, source_ip="198.51.100.25"),
+        make_failure(2, source_ip="203.0.113.10"),
+        make_failure(4, source_ip="192.0.2.10"),
+    ]
+
+    assert detect_multiple_source_ips(events) == []
+
+
+def test_auth004_requires_three_ips_inside_same_ten_minute_window():
+    from sentinel.detector import detect_multiple_source_ips
+
+    events = [
+        make_success(0, source_ip="198.51.100.25"),
+        make_success(5, source_ip="203.0.113.10"),
+        make_success(10, source_ip="192.0.2.10"),
+    ]
+
+    assert detect_multiple_source_ips(events) == []
+
+
+def test_auth004_counts_distinct_ips_not_number_of_events():
+    from sentinel.detector import detect_multiple_source_ips
+
+    events = [
+        make_success(0, source_ip="198.51.100.25"),
+        make_success(1, source_ip="198.51.100.25"),
+        make_success(2, source_ip="203.0.113.10"),
+        make_success(3, source_ip="192.0.2.10"),
+    ]
+
+    alerts = detect_multiple_source_ips(events)
+
+    assert len(alerts) == 1
+    assert alerts[0]["ip_count"] == 3
+    assert len(alerts[0]["source_ips"]) == 3

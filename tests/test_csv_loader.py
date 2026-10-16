@@ -64,3 +64,42 @@ def test_inconsistent_success_value_is_rejected():
 def test_file_over_10_mb_is_rejected():
     with pytest.raises(ValueError, match="10 Mo"):
         load_events_from_csv(b"x" * (10 * 1024 * 1024 + 1))
+
+
+def test_timestamps_with_different_offsets_are_normalized_to_utc():
+    csv = (
+        b"timestamp,source_ip,username,event_type,success\n"
+        b"2026-10-14T10:00:00Z,192.0.2.10,alice,login_success,true\n"
+        b"2026-10-14T12:00:00+02:00,192.0.2.11,bob,login_success,true\n"
+    )
+
+    events = load_events_from_csv(csv)
+
+    assert events.loc[0, "timestamp"] == events.loc[1, "timestamp"]
+    assert events.loc[0, "timestamp"].endswith("+00:00")
+
+
+def test_timestamps_with_different_offsets_are_normalized_to_utc():
+    csv = (
+        b"timestamp,source_ip,username,event_type,success\n"
+        b"2026-10-14T10:00:00Z,192.0.2.10,alice,login_success,true\n"
+        b"2026-10-14T12:00:00+02:00,192.0.2.11,bob,login_success,true\n"
+    )
+
+    events = load_events_from_csv(csv)
+
+    assert events.loc[0, "timestamp"] == events.loc[1, "timestamp"]
+    assert events.loc[0, "timestamp"].endswith("+00:00")
+
+
+def test_identical_events_are_preserved():
+    csv = (
+        b"timestamp,source_ip,username,event_type,success\n"
+        b"2026-10-14T10:00:00Z,192.0.2.10,alice,login_failure,false\n"
+        b"2026-10-14T10:00:00Z,192.0.2.10,alice,login_failure,false\n"
+    )
+
+    events = load_events_from_csv(csv)
+
+    assert len(events) == 2
+    assert (events["event_type"] == "login_failure").sum() == 2
